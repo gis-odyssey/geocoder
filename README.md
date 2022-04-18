@@ -50,8 +50,8 @@ e.g. c:\temp folder.
 4. Follow these steps to use the GUI app:
    1. Click the Maximize icon on top right hand corner, to enlarge the window first.
    2. Click "Choose Spreadsheet File" Button and select spreadsheet file (.csv, .xls, and .xlsx files only)
-   3. Click the "Choose Administratve Boundary Shapefile" button and select ESRI .shp file.
-   4. Click the "Run the Matching Process" button and follow the GUI prompts.
+   3. Click the "Choose Administratve Boundary Shapefile" button and select the administrative boundary shapefile.
+   4. Click the "Run the Matching Process" button and follow the GUI application prompts.
 
 ### Intructions for Operating the Geocoder Console Application:
 
@@ -61,7 +61,7 @@ The Console version of the Geocoder app is a "bare-bones" application that might
 
 2. Start your Python environment (Windows Python prompt, or Python prompt in Linux or Mac or Anaconda prompt). [Info for setting up Windows command prompt to run Python.](https://www.geeksforgeeks.org/how-to-set-up-command-prompt-for-python-in-windows10)
 
-3. The console program requires 3 parameters, spreadsheet_file, admin_boundaries_file, and match_type. Run console commands as shown below.
+3. The console program requires 3 parameters, spreadsheet_file, admin_boundaries_file, and match_type. Run console commands as shown below and follow the console application prompts.
 
 __4. Sample console commands:__
 
