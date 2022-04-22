@@ -9,13 +9,13 @@ import sys
 class Frame(wx.Frame):
     def __init__(self):
         wx.Frame.__init__(self, parent=None,
-                          title='App to Match Admin Boundaries', size = ( 800, 800 ))
+                          title='Geocoder App to Match Admin Boundaries', size = ( 800, 800 ))
 
         self.panel = wx.Panel(self, -1 )
         self.main_sizer = wx.BoxSizer(wx.VERTICAL)
 
         # Title
-        self.centred_text = wx.StaticText(self.panel, label="App to Match Admin Boundaries")
+        self.centred_text = wx.StaticText(self.panel, label="Geocoder App to Match Admin Boundaries")
         self.main_sizer.Add(self.centred_text, 0, wx.ALIGN_CENTRE | wx.ALL, 3)
 
         # Grids
@@ -23,7 +23,7 @@ class Frame(wx.Frame):
         self.grid_1 = wx.GridSizer(1, 3, 2, 2) #GridSizer(rows, cols, vgap, hgap)
         self.spreadsheet_btn = wx.Button(self.panel, label='Choose Spreadsheet File (.XLS, .XLSX, or .CSV)') #, pos=(30, 30)
         self.spreadsheet_btn.Bind(wx.EVT_BUTTON, self.on_open_spreadsheet)
-        self.admin_btn = wx.Button(self.panel, label='Choose Administrative Boundary Shapefile')
+        self.admin_btn = wx.Button(self.panel, label='Choose Administrative Boundary Shapefile (.SHP)')
         self.admin_btn.Bind(wx.EVT_BUTTON, self.on_open_shapefile)
         self.match_btn = wx.Button(self.panel, label='Run the Matching Process')
         self.match_btn.Bind(wx.EVT_BUTTON, self.on_press_match_btn)
@@ -233,7 +233,7 @@ class Frame(wx.Frame):
         p = PromptMessages()
         p.argument = 'click OK button'
 
-        epsg_dlg = EPSGDialog(None, 'Enter EPSG Code', p.epsg_caption)
+        epsg_dlg = EPSGDialog(None, 'Enter EPSG Code To Create Shapefile', p.epsg_caption)
 
         if epsg_dlg.ShowModal() == wx.ID_OK:
 
