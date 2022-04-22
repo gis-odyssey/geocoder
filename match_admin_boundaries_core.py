@@ -9,7 +9,7 @@ import re
 from collections import OrderedDict, namedtuple
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from pathvalidate import sanitize_filepath
-from fuzzywuzzy import fuzz, process
+from thefuzz import fuzz, process
 from bs4 import UnicodeDammit
 
 '''This module provides the core logic, i.e. the Model, for the GUI & console versions of the match_admin_boundaries 
@@ -50,11 +50,6 @@ class PromptMessages(object):
                '\nExample website to check for EPSG codes: https://epsg.io' \
                '\nPlease enter a valid EPSG Code in the text box and {0}.'.format(self.argument)
 
-    col_priority_console = '\nEnter a Column Priority and Hit Enter key.' \
-                           '\nIf you want to prioritize the right column, type priority_right and hit Enter.' \
-                           '\nIf you want regular column priority or are unsure, type any other key and hit Enter to continue.' \
-                           '\nYou can also consult Column Priority section in User Guide for More Info.'
-
 
 class DataUtility:
 
@@ -68,7 +63,7 @@ class DataUtility:
 
         # Yes Correct June 3 2021
         if len(dataframe[filter]) > 0:
-            print('Filtered row with object id {0}'.format(dataframe[filter].values[0][0]))
+            print('Filtered row with first column id of {0}'.format(dataframe[filter].values[0][0]))
             return dataframe[filter].values[0]
 
     @staticmethod
@@ -165,6 +160,7 @@ class DataUtility:
         except ValueError:
             return False
 
+
 class AdminBoundaries:
 
     def __init__(self, file_path):
@@ -229,6 +225,8 @@ class SpreadsheetData:
                 print('Exception {0} encountered at line {1}'.format(e, e.__traceback__.tb_lineno))
 
         elif path.isfile(file_path) and (file_path.lower().endswith('.xls') or file_path.lower().endswith('.xlsx')):
+            detected_encoding = DataUtility.get_file_encoding(file_path)
+            print('UnicodeDammit detected encoding as {0}'.format(detected_encoding))
             # 9/26/2021 Tested working, must read Excel format with Pandas first and then convert to GeoDataFrame, 7/10 match
             self._dataframe = pandas.read_excel(file_path)
             self.to_geodataframe()
@@ -650,7 +648,6 @@ def run_console_match(arg_val, md):
 
 
 def process_column_priority(match_arg_val, md, **kwargs):
-    print(PromptMessages.col_priority_console)
     col_pri_input = str(input('Enter column priority and hit Enter key. --> ')).lower().strip()
 
     try:
