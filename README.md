@@ -1,5 +1,5 @@
 # geocoder
-Geocoder program (Match Admin Boundaries) used to match address or location names in spreadsheet file (Microsoft Excel or CSV/Comma Separated Value) against administrative boundaries in a shapefile, can do fuzzy-matching. This tool was developed while volunteering with the Canadian Red Cross.
+Geocoder program (Match Admin Boundaries) used to match address or location names in a spreadsheet file to administrative boundaries in a shapefile. This application supports Microsoft Excel or CSV/Comma Separated Value spreadsheets and it can do fuzzy-matching. This tool was developed while volunteering with the Canadian Red Cross.
 
 The geocoder application requires that you have Python Version 3.7 or newer. It also uses Python’s PIP package manager, which is included in Python. 
 
