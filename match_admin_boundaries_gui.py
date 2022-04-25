@@ -135,7 +135,7 @@ class Frame(wx.Frame):
 
                         else:
                             wrong_cutoff_dlg = wx.MessageDialog(None,
-                                                                'Please enter a valid number that is between 1 and 99',
+                                                                'Please enter a valid number that is between 1 and 100',
                                                                 'Incorrect Cut-off Score entered', wx.OK)
                             wrong_cutoff_dlg.ShowModal()
                             wrong_cutoff_dlg.Destroy()
