@@ -11,6 +11,7 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from pathvalidate import sanitize_filepath
 from thefuzz import fuzz, process
 from bs4 import UnicodeDammit
+from dataclasses import dataclass
 
 '''This module provides the core logic, i.e. the Model, for the GUI & console versions of the match_admin_boundaries 
 application. '''
@@ -36,10 +37,10 @@ class PromptMessages(object):
 
     @property
     def fuzzy_caption(self):
-        return '\nEnter a number between 1 to 99 as a fuzzy match cut-off score and {0}.' \
-               '\nIt\'s recommended that you enter a cut-off score between 50 and 99 for' \
+        return '\nEnter a number between 1 to 100 as a fuzzy match cut-off score and {0}.' \
+               '\nIt\'s recommended that you enter a cut-off score between 50 and 100 for' \
                '\nmore accurate fuzzy match results.\n\n50 would be a flexible text match criterion,' \
-               '\nand 99 would be the highest fuzzy match criterion.'.format(self.argument)
+               '\nand 100 would be the highest fuzzy match criterion.'.format(self.argument)
 
     @property
     def epsg_caption(self):
@@ -54,12 +55,16 @@ class PromptMessages(object):
 class DataUtility:
 
     @staticmethod
-    def filter_row(dataframe, col_name, text_filter):
+    def filter_row(dataframe, col_name, text_filter, spreadsheet_data):
         # returns a numpy ndarray
-
-        dataframe[col_name] = DataUtility.remove_accented_char(dataframe[col_name])
-        dataframe[col_name] = dataframe[col_name].apply(lambda x: x.lower() if isinstance(x, str) else x)
-        filter = dataframe[col_name] == unidecode(text_filter).lower().strip()
+        # Only apply unidecode on Western European/Latin type languages
+        if spreadsheet_data.encoding in spreadsheet_data.western_europe_encodings:
+            dataframe[col_name] = DataUtility.remove_accented_char(dataframe[col_name])
+            dataframe[col_name] = dataframe[col_name].apply(lambda x: x.lower().strip() if isinstance(x, str) else x)
+            filter = dataframe[col_name] == unidecode(text_filter).lower().strip()
+        else:
+            dataframe[col_name] = dataframe[col_name].apply(lambda x: x.lower().strip() if isinstance(x, str) else x)
+            filter = dataframe[col_name] == text_filter.lower().strip()
 
         # Yes Correct June 3 2021
         if len(dataframe[filter]) > 0:
@@ -67,18 +72,23 @@ class DataUtility:
             return dataframe[filter].values[0]
 
     @staticmethod
-    def is_string_match(cell_text, column_series):
+    def is_string_match(cell_text, column_series, spreadsheet_data):
         """Match text in spreadsheet cell against all values in Administrative level column
         column_series already has stripped white space """
-        # old June 4 column_series = column_series.apply(lambda x: unidecode(x) if isinstance(x, str) else x)
-        column_series = DataUtility.remove_accented_char(column_series)
+
+        #Only remove accents on Western European/Latin type languages
+        if spreadsheet_data.encoding in spreadsheet_data.western_europe_encodings:
+            column_series = DataUtility.remove_accented_char(column_series)
 
         # Can not apply string comparison on GeometryDtype/geometry column
         if isinstance(column_series, geopandas.geoseries.GeoSeries) and isinstance(column_series.values,
                                                                                    geopandas.array.GeometryArray):
             return False
         elif pandas.api.types.is_string_dtype(column_series):
-            return (unidecode(str(cell_text).lower().strip()) == column_series.str.lower()).any()
+            if spreadsheet_data.encoding in spreadsheet_data.western_europe_encodings:
+                return (unidecode(str(cell_text).lower().strip()) == column_series.str.lower()).any()
+            else:
+                return (str(cell_text).lower().strip() == column_series.str.lower()).any()
         else:
             return False
 
@@ -103,9 +113,9 @@ class DataUtility:
             return False
 
     @staticmethod
-    # User must enter range between 1 to 99 for Fuzzy Match
-    def is_valid_cutoff(input):
-        match = re.search('^([1-9][0-9]?)$', input)
+    # User must enter range between 1 to 100 for Fuzzy Match
+    def is_valid_cutoff(fuzzy_num):
+        match = re.search('^([1-9][0-9]?|100)$', fuzzy_num)
         if match is not None:
             return True
         else:
@@ -206,27 +216,44 @@ class SpreadsheetData:
         if path.isfile(file_path) and file_path.lower().endswith('.csv'):
             self._dataframe = geopandas.read_file(file_path, encoding='utf-8')
 
+            # Assign encoding value ONLY ONCE to spreadsheet instance variable
+            # Currently only supports western european/Latin and some Eastern European languages, uses bs4-UnicodeDammit
+            # See https://stackoverflow.com/questions/8509339/what-is-the-most-common-encoding-of-each-language
+            encoding = DataUtility.get_file_encoding(file_path)
+            if encoding is not None:
+                self._encoding = encoding
+                print('UnicodeDammit detected encoding as {0}'.format(self._encoding))
+            else:
+                self._encoding = None
+
+            self._western_europe_encodings = ('ascii', 'windows-1252', 'latin-1', 'utf-8', 'ibm-819', 'cp-819',
+                                     'iso-8859-15', 'iso-8859-1', 'oem-850', 'oem-858', 'oem-us')
+
             # To prevent fillna error when running fuzzy matching to a GeoDataframe created from CSV file
             self._dataframe['geometry'] = self._dataframe['geometry'].fillna(value=None)
 
-            # Fixes most encoding issues with CSV file. Fixes accented characters in GUI display and report for csv.
-            # Currently only supports western european and Russian type languages, uses bs4-UnicodeDammit library
-            # See https://stackoverflow.com/questions/8509339/what-is-the-most-common-encoding-of-each-language
-            detected_encoding = DataUtility.get_file_encoding(file_path)
-            print('UnicodeDammit detected encoding as {0}'.format(detected_encoding))
-
+            # Only try to apply correct characters for CSV file because it was opened with utf8.
             try:
                 for col in self._dataframe.columns:
                     self._dataframe[col] = self._dataframe[col].apply(
-                        lambda x: x.decode(detected_encoding) if isinstance(x, bytes) else x)
+                        lambda x: x.decode(self.encoding) if isinstance(x, bytes) else x)
             except UnicodeDecodeError as ue:
                 print('UniDecodeError {0} encountered at line {1}'.format(ue, ue.__traceback__.tb_lineno))
             except Exception as e:
                 print('Exception {0} encountered at line {1}'.format(e, e.__traceback__.tb_lineno))
 
         elif path.isfile(file_path) and (file_path.lower().endswith('.xls') or file_path.lower().endswith('.xlsx')):
-            detected_encoding = DataUtility.get_file_encoding(file_path)
-            print('UnicodeDammit detected encoding as {0}'.format(detected_encoding))
+            # Assign encoding value ONLY ONCE to spreadsheet instance variable
+            encoding = DataUtility.get_file_encoding(file_path)
+            if encoding is not None:
+                self._encoding = encoding
+                print('UnicodeDammit detected encoding as {0}'.format(self._encoding))
+            else:
+                self._encoding = None
+
+            self._western_europe_encodings = ('ascii', 'windows-1252', 'latin-1', 'utf-8', 'ibm-819', 'cp-819',
+                                     'iso-8859-15', 'iso-8859-1', 'oem-850', 'oem-858', 'oem-us')
+
             # 9/26/2021 Tested working, must read Excel format with Pandas first and then convert to GeoDataFrame, 7/10 match
             self._dataframe = pandas.read_excel(file_path)
             self.to_geodataframe()
@@ -240,17 +267,12 @@ class SpreadsheetData:
 
         # Convert all column headers to lower case for easy matching by get_xy_col_locations function
         if isinstance(self._dataframe, geopandas.geodataframe.GeoDataFrame) and 'geometry' in self._dataframe.columns:
-                #and self._dataframe['geometry'].isnull().all():
             # Convert column names to lower case and strip white space
             self._dataframe.columns = self._dataframe.columns.str.strip().str.lower()
             # Remove periods and special chars from column headers, works best on utf-8 encoded files
             self._dataframe.columns = self._dataframe.columns.str.replace(r'[.•#@&―-]', '', regex=True)
             # Set an attribute here so we know it's a Geodataframe and has a geometry column
             self.has_geom_col = 1
-
-        #if isinstance(self._dataframe, geopandas.geodataframe.GeoDataFrame) and 'geometry' in self._dataframe.columns:
-            # Set an attribute here so we know it's a Geodataframe and has a geometry column
-            # self.has_geom_col = 1
 
         #Try to load x and y or lat and log coordinates from spreadsheet into geometry values into geopandas dataframe
         if hasattr(self, 'has_geom_col'):
@@ -304,6 +326,14 @@ class SpreadsheetData:
     @property
     def columns(self):
         return self._dataframe.columns
+
+    @property
+    def encoding(self):
+        return self._encoding
+
+    @property
+    def western_europe_encodings(self):
+        return self._western_europe_encodings
 
     # 8/15/2021 tested working, is a void type function, does not return anything
     def to_pandas_dataframe(self):
@@ -486,8 +516,8 @@ class MatchedData:
                 insertions = 0
                 print('MatchData - checking for matches between spreadsheet and admin boundaries shapefile...')
                 for i in reversed(range(1, col_size)):
-                    if DataUtility.is_string_match(row[i], self._adm_boundaries.data_column(self._admin_choice)):
-                        data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice, row[i])
+                    if DataUtility.is_string_match(row[i], self._adm_boundaries.data_column(self._admin_choice), self.spreadsheet_data):
+                        data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice, row[i], self.spreadsheet_data)
                         # Prevent inserting more than one match from multiple columns
                         if insertions == 0:
                             row_data = namedtuple('row_data', ['shp_data', 'sheet_data'])
@@ -509,8 +539,8 @@ class MatchedData:
                 insertions = 0
                 print('MatchData - checking for matches between spreadsheet and admin boundaries shapefile...')
                 for i in range(1, col_size):
-                    if DataUtility.is_string_match(row[i], self._adm_boundaries.data_column(self._admin_choice)):
-                        data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice, row[i])
+                    if DataUtility.is_string_match(row[i], self._adm_boundaries.data_column(self._admin_choice), self.spreadsheet_data):
+                        data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice, row[i], self.spreadsheet_data)
                         if insertions == 0:
                             # Info for shapefile
                             row_data = namedtuple('row_data', ['shp_data', 'sheet_data'])
@@ -557,7 +587,7 @@ class MatchedData:
                     best_match = self.fuzzy_match_text(row[i], temp_adm_boundaries_list, int(min_score))
                     if best_match is not None:
                         data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice,
-                                                          best_match[0])  # row[i] in spreadsheet
+                                                          best_match[0], self.spreadsheet_data)  # row[i] in spreadsheet
                         if insertions == 0:
                             # shpfile info
                             row_data = namedtuple('row_data', ['shp_data', 'sheet_data'])
@@ -579,7 +609,7 @@ class MatchedData:
                     best_match = self.fuzzy_match_text(row[i], temp_adm_boundaries_list, int(min_score))
                     if best_match is not None:
                         data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice,
-                                                          best_match[0])  # row[i] in spreadsheet
+                                                          best_match[0], self.spreadsheet_data)  # row[i] in spreadsheet
                         if insertions == 0:
                             # Info for shpfile
                             row_data = namedtuple('row_data', ['shp_data', 'sheet_data'])
@@ -648,6 +678,8 @@ def run_console_match(arg_val, md):
 
 
 def process_column_priority(match_arg_val, md, **kwargs):
+    print('If you want to choose the columns on the right side of spreadsheet, type \'priority_right\' & hit enter key.')
+    print('Otherwise type any key and hit Enter.')
     col_pri_input = str(input('Enter column priority and hit Enter key. --> ')).lower().strip()
 
     try:
