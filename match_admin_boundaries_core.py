@@ -11,7 +11,6 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from pathvalidate import sanitize_filepath
 from thefuzz import fuzz, process
 from bs4 import UnicodeDammit
-from dataclasses import dataclass
 
 '''This module provides the core logic, i.e. the Model, for the GUI & console versions of the match_admin_boundaries 
 application. '''
