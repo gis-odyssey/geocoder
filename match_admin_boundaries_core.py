@@ -13,7 +13,7 @@ from thefuzz import fuzz, process
 from bs4 import UnicodeDammit
 
 '''This module provides the core logic, i.e. the Model, for the GUI & console versions of the match_admin_boundaries 
-application. '''
+geocoder application. '''
 
 
 class PromptMessages(object):
@@ -149,12 +149,11 @@ class DataUtility:
             return dir_path
 
     @staticmethod
-    # takes bytes or byte array from file that has been opened
     def get_file_encoding(file_path):
         """
-        Detect the encoding of the given byte string, from opened file, returns a string.
-        :param file_path:       file path to open
-        :type file_path:        string
+        Detect the encoding of the given byte string from opened file, returns a string.
+        :param file_path: file path to open
+        :type file_path:  string
         """
         with open(file_path, 'rb') as f:
             content = f.read()
@@ -208,10 +207,15 @@ class AdminBoundaries:
 class SpreadsheetData:
 
     def __init__(self, file_path):
+        """Constructor.
+
+        :param file_path: string for teh file path of the spreadsheet.
+        """
         self._file_path = sanitize_filepath(file_path,
                                             platform='auto')
 
-        # Sept. 26 geopandas unidecode test: geopandas has better matches 7/10 versus 5/10 for pandas unidecode
+        self._western_europe_encodings = ('ascii', 'latin-1', 'utf-8', 'iso-8859-15', 'iso-8859-1')
+
         if path.isfile(file_path) and file_path.lower().endswith('.csv'):
             self._dataframe = geopandas.read_file(file_path, encoding='utf-8')
 
@@ -225,21 +229,19 @@ class SpreadsheetData:
             else:
                 self._encoding = None
 
-            self._western_europe_encodings = ('ascii', 'windows-1252', 'latin-1', 'utf-8', 'ibm-819', 'cp-819',
-                                     'iso-8859-15', 'iso-8859-1', 'oem-850', 'oem-858', 'oem-us')
-
             # To prevent fillna error when running fuzzy matching to a GeoDataframe created from CSV file
             self._dataframe['geometry'] = self._dataframe['geometry'].fillna(value=None)
 
             # Only try to apply correct characters for CSV file because it was opened with utf8.
-            try:
-                for col in self._dataframe.columns:
-                    self._dataframe[col] = self._dataframe[col].apply(
-                        lambda x: x.decode(self.encoding) if isinstance(x, bytes) else x)
-            except UnicodeDecodeError as ue:
-                print('UniDecodeError {0} encountered at line {1}'.format(ue, ue.__traceback__.tb_lineno))
-            except Exception as e:
-                print('Exception {0} encountered at line {1}'.format(e, e.__traceback__.tb_lineno))
+            if self.encoding is not None:
+                try:
+                    for col in self._dataframe.columns:
+                        self._dataframe[col] = self._dataframe[col].apply(
+                            lambda x: x.decode(self.encoding) if isinstance(x, bytes) else x)
+                except UnicodeDecodeError as ue:
+                    print('UniDecodeError {0} encountered at line {1}'.format(ue, ue.__traceback__.tb_lineno))
+                except Exception as e:
+                    print('Exception {0} encountered at line {1}'.format(e, e.__traceback__.tb_lineno))
 
         elif path.isfile(file_path) and (file_path.lower().endswith('.xls') or file_path.lower().endswith('.xlsx')):
             # Assign encoding value ONLY ONCE to spreadsheet instance variable
@@ -250,10 +252,7 @@ class SpreadsheetData:
             else:
                 self._encoding = None
 
-            self._western_europe_encodings = ('ascii', 'windows-1252', 'latin-1', 'utf-8', 'ibm-819', 'cp-819',
-                                     'iso-8859-15', 'iso-8859-1', 'oem-850', 'oem-858', 'oem-us')
-
-            # 9/26/2021 Tested working, must read Excel format with Pandas first and then convert to GeoDataFrame, 7/10 match
+            # Must read Excel format with Pandas first and then convert to GeoDataFrame
             self._dataframe = pandas.read_excel(file_path)
             self.to_geodataframe()
             print(type(self._dataframe))
@@ -273,16 +272,17 @@ class SpreadsheetData:
             # Set an attribute here so we know it's a Geodataframe and has a geometry column
             self.has_geom_col = 1
 
-        #Try to load x and y or lat and log coordinates from spreadsheet into geometry values into geopandas dataframe
+        # Try to load x and y or lat and log coordinates from spreadsheet into geometry values into geopandas dataframe
         if hasattr(self, 'has_geom_col'):
             self.xy_to_geometry()
             print(self._dataframe['geometry'])
 
-
-
     # Returns a list containing x, y column numerical locations, to assign to geodatarame geometry column
     def get_xy_col_locations(self):
-
+        """
+        Get locations of x and y or longitude/latitude columns in spreadsheet.
+        :return: list
+        """
         xy_col_locs = []
 
         if 'x' in self._dataframe.columns:
@@ -311,10 +311,16 @@ class SpreadsheetData:
 
     @property
     def file_path(self):
+        """
+        Return file path.
+        """
         return self._file_path
 
     @property
     def data_frame(self):
+        """
+        Return dataframe.
+        """
         return self._dataframe
 
     @data_frame.setter
@@ -324,20 +330,23 @@ class SpreadsheetData:
 
     @property
     def columns(self):
+        """Return columns."""
         return self._dataframe.columns
 
     @property
     def encoding(self):
+        """Return encoding."""
         return self._encoding
 
     @property
     def western_europe_encodings(self):
+        """Return the encodings we will accept as Western European encodings, for unidecode to process."""
         return self._western_europe_encodings
 
-    # 8/15/2021 tested working, is a void type function, does not return anything
     def to_pandas_dataframe(self):
-        """The data_frame property will return as GeoDataFrame type but there are times when we want
-        to return the dataframe as Pandas dataframe type"""
+        """
+        Convert Geodataframe to Pandas dataframe, is a void type function, does not return any value.
+        """
         if hasattr(self, 'has_geom_col'):
             temp_pd_data_frame = self._dataframe
             # Must use del as temp_pd_data_frame.drop('geometry', 1) doesn't work
@@ -346,6 +355,9 @@ class SpreadsheetData:
 
     # is a void type function, does not return anything
     def to_geodataframe(self):
+        """
+        Change a Pandas dataframe to Geodataframe. This is a void type function, does not return any value.
+        """
         if isinstance(self._dataframe, pandas.core.frame.DataFrame):
 
             temp_array = numpy.full(len(self._dataframe), fill_value=-1.0)
@@ -358,8 +370,10 @@ class SpreadsheetData:
                     or 'latitude' and 'longitude' in self._dataframe.columns:
                 self.xy_to_geometry()
 
-    # Assigns x/y lat/long column values in spreadsheet to geometry column. Void type function
     def xy_to_geometry(self):
+        """
+        Assigns x/y lat/long column values in spreadsheet to geometry column. This is Void type function.
+        """
         if self._dataframe is not None:
             if 'x' and 'y' or 'lat' and 'lon' or 'lat' and 'long' \
                     or 'latitude' and 'longitude' in self._dataframe.columns:
@@ -380,7 +394,6 @@ class SpreadsheetData:
             else:
                 print('X and Y coordinates were not detected in {0}!'.format(self._file_path))
 
-
         # No x and y values available so we make empty geometry
         else:
             # We create an empty array to populate the geometry column .fillna(value=None)
@@ -393,8 +406,7 @@ class SpreadsheetData:
 
 
 class Report:
-
-    # Creates an Excel file report to show spreadsheet matched to admin boundaries shapefile
+    """Creates an Excel file report to show spreadsheet matched to admin boundaries shapefile"""
     def __init__(self, spreadsheet_dataframe, admin_dataframe):
         if not isinstance(spreadsheet_dataframe, geopandas.geodataframe.GeoDataFrame):
             raise TypeError('The spreadsheet dataframe must be of the GeoDataFrame type!!')
@@ -426,10 +438,14 @@ class Report:
 
 
 class MatchedData:
-
-    # This class represents any matches between the spreadsheet data and the admin boundaries data
+    """
+    This class represents any matches between the spreadsheet data and the admin boundaries data
+    """
     def __init__(self, spreadsheet_data, adm_boundaries):
-
+        """Constructor.
+        :param spreadsheet_data: string for spreadsheet data file
+        :param adm_boundaries: string for the admin boundaries shapefile
+        """
         self._admin_choice = None
         self._spreadsheet_data = spreadsheet_data
         self._adm_boundaries = adm_boundaries
@@ -471,20 +487,30 @@ class MatchedData:
         self._admin_choice = value
 
     def get_admin_choices(self):
+        """
+        Get Admin choices
+        :return: dictionary with keys storing column indices, and values storing admin boundary column names
+        """
         columns_dict = dict(zip([str(self._adm_boundaries.dataframe.columns.get_loc(c)) for c in
                                  self._adm_boundaries.dataframe.columns], self._adm_boundaries.dataframe.columns))
         return columns_dict
 
-    # Attribute to indicate user selected Admin Choice, possibly only use in console version?, Not Needed for GUI.
     def selected_admin_choice(self):
+        """
+        Attribute to indicate user selected Admin Choice, possibly only use in console version?, Not Needed for GUI.
+        """
         self.selected_admin_choice = 1
 
-    # This adds attribute to indicate user has indicated to proceed with the match.
     def user_proceed_match(self):
+        """
+        Attribute showing that user has indicated to proceed with match
+        """
         self.user_proceed_match = 1
 
-    # dataframe used for generating Excel file match report, passed to the Report class
     def get_spreadsheet_report_dataframe(self):
+        """
+        Dataframe used for generating Excel file match report, passed to the Report class
+        """
         if len(self._matched_data_dict) > 0:
             '''old version temp_list = [v[1] for k,v in self._matched_data_dict.items() ]
             new ver w/ NamedTuple temp_list = [val.sheet_data for key, val in self._matched_data_dict.items()]
@@ -496,8 +522,12 @@ class MatchedData:
                 x=temp_geom_array, y=temp_geom_array))
         return temp_gdf
 
-    # Convert filtered ndarray from dataframe to Pandas series
     def array_to_series(self, row, score):
+        """Convert filtered ndarray from dataframe to Pandas series, inserts match score in the returned Pandas series.
+        :param row: ndarray of the matched row.
+        :param score: integer for the match score.
+        :return: Pandas series for the matched row.
+        """
         row_series = pandas.Series(row)
         row_series.index = row._fields
         row_series['Match_Score'] = score
@@ -505,6 +535,9 @@ class MatchedData:
 
     # This match is always run and does strict text matching
     def run_strict_match(self, **kwargs):
+        """Always run the strict match first.
+        :param **kwargs: dictionary keyword argument. Only valid keyword argument is from_right_col: 1.
+        """
         # Loop through each column, Pandas' first col value starts at index 1
         col_size = len(self._spreadsheet_data.data_frame.columns)
         print('kwargs passed to run_match function: {0}'.format(kwargs.keys()))
@@ -556,8 +589,10 @@ class MatchedData:
                 if row.Index not in self._matched_data_dict.keys():
                     self._unmatched_data_dict[row.Index] = row
 
-    # This is the fuzzy match function, only executed when user selects fuzzy matching
     def run_fuzzy_match(self, min_score, **kwargs):
+        """Fuzzy match function, only executed when user selects fuzzy matching.
+        :param **kwargs: dictionary keyword argument. Only valid keyword argument is from_right_col: 1.
+        """
         # Loop through each column, Pandas' first col value starts at index 1, Aug. 21 I need index 0 for the count idx!
         col_size = len(self._spreadsheet_data.data_frame.columns)
         print('Fuzzy match running on file type: {0}. '.format(self.spreadsheet_data))
@@ -621,7 +656,15 @@ class MatchedData:
                         continue
 
     def fuzzy_match_text(self, text_to_match, options, min_score):
-        # Will try to match min_score and above https://github.com/seatgeek/fuzzywuzzy/blob/master/fuzzywuzzy/process.py
+        """
+        Fuzzy match the text provided.
+        Will try to match min_score and above https://github.com/seatgeek/fuzzywuzzy/blob/master/fuzzywuzzy/process.py
+        :param text_to_match: string of the text.
+        :param options: A list or dictionary of choices in the fuzzy match.
+        :param min_score: Integer, Optional argument for score threshold.
+        :return: Tuple containing a single match and its score, or None.
+        """
+        #
         result = process.extractOne(query=text_to_match, choices=options, scorer=fuzz.WRatio,
                                     score_cutoff=min_score)
         if isinstance(result, tuple) and len(result) == 2:
