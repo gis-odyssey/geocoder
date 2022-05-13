@@ -75,7 +75,7 @@ class DataUtility:
         """Match text in spreadsheet cell against all values in Administrative level column
         column_series already has stripped white space """
 
-        #Only remove accents on Western European/Latin type languages
+        # Only remove accents on Western European/Latin type languages
         if spreadsheet_data.encoding in spreadsheet_data.western_europe_encodings:
             column_series = DataUtility.remove_accented_char(column_series)
 
@@ -216,42 +216,42 @@ class SpreadsheetData:
 
         self._western_europe_encodings = ('ascii', 'latin-1', 'utf-8', 'iso-8859-15', 'iso-8859-1')
 
-        if path.isfile(file_path) and file_path.lower().endswith('.csv'):
-            self._dataframe = geopandas.read_file(file_path, encoding='utf-8')
+        encoding = DataUtility.get_file_encoding(file_path)
+        if encoding is not None:
+            self._encoding = encoding
+            print('UnicodeDammit detected encoding as {0}'.format(self._encoding))
+        else:
+            self._encoding = None
 
+        if path.isfile(file_path) and file_path.lower().endswith('.csv'):
+            # If detected None encoding force geopandas to read w/ 8859-1 otherwise geopandas reads w/ detected encoding
+            self._dataframe = geopandas.read_file(file_path, engine='python',
+                                                  encoding='iso-8859-1' if self.encoding is None else self.encoding,
+                                                  errors='backslashreplace')
             # Assign encoding value ONLY ONCE to spreadsheet instance variable
             # Currently only supports western european/Latin and some Eastern European languages, uses bs4-UnicodeDammit
             # See https://stackoverflow.com/questions/8509339/what-is-the-most-common-encoding-of-each-language
-            encoding = DataUtility.get_file_encoding(file_path)
-            if encoding is not None:
-                self._encoding = encoding
-                print('UnicodeDammit detected encoding as {0}'.format(self._encoding))
-            else:
-                self._encoding = None
 
             # To prevent fillna error when running fuzzy matching to a GeoDataframe created from CSV file
             self._dataframe['geometry'] = self._dataframe['geometry'].fillna(value=None)
 
-            # Only try to apply correct characters for CSV file because it was opened with utf8.
+            # Only try to decode byte characters in CSV file because CSV was opened with detected encoding.
             if self.encoding is not None:
-                try:
-                    for col in self._dataframe.columns:
-                        self._dataframe[col] = self._dataframe[col].apply(
-                            lambda x: x.decode(self.encoding) if isinstance(x, bytes) else x)
-                except UnicodeDecodeError as ue:
-                    print('UniDecodeError {0} encountered at line {1}'.format(ue, ue.__traceback__.tb_lineno))
-                except Exception as e:
-                    print('Exception {0} encountered at line {1}'.format(e, e.__traceback__.tb_lineno))
+                for col in self._dataframe.columns:
+                    if col != 'geometry':
+                        for val in col:
+                            if isinstance(val, bytes):
+                                try:
+                                    val = val.decode(self.encoding)
+                                except UnicodeDecodeError as ue:
+                                    print('{0} error w/ {1} at {2} and ln {3}'.format(ue, self.encoding, val,
+                                                                                      ue.__traceback__.tb_lineno))
+                                    continue
+                                except Exception as e:
+                                    print('Exception {0} encountered at line {1}'.format(e, e.__traceback__.tb_lineno))
+                                    continue
 
         elif path.isfile(file_path) and (file_path.lower().endswith('.xls') or file_path.lower().endswith('.xlsx')):
-            # Assign encoding value ONLY ONCE to spreadsheet instance variable
-            encoding = DataUtility.get_file_encoding(file_path)
-            if encoding is not None:
-                self._encoding = encoding
-                print('UnicodeDammit detected encoding as {0}'.format(self._encoding))
-            else:
-                self._encoding = None
-
             # Must read Excel format with Pandas first and then convert to GeoDataFrame
             self._dataframe = pandas.read_excel(file_path)
             self.to_geodataframe()
@@ -274,8 +274,9 @@ class SpreadsheetData:
 
         # Try to load x and y or lat and log coordinates from spreadsheet into geometry values into geopandas dataframe
         if hasattr(self, 'has_geom_col'):
-            self.xy_to_geometry()
-            print(self._dataframe['geometry'])
+            if self.has_geom_col == 1:
+                self.xy_to_geometry()
+                print(self._dataframe['geometry'])
 
     # Returns a list containing x, y column numerical locations, to assign to geodatarame geometry column
     def get_xy_col_locations(self):
@@ -348,10 +349,11 @@ class SpreadsheetData:
         Convert Geodataframe to Pandas dataframe, is a void type function, does not return any value.
         """
         if hasattr(self, 'has_geom_col'):
-            temp_pd_data_frame = self._dataframe
-            # Must use del as temp_pd_data_frame.drop('geometry', 1) doesn't work
-            del temp_pd_data_frame['geometry']
-            self._dataframe = pandas.DataFrame(temp_pd_data_frame)
+            if self.has_geom_col == 1:
+                temp_pd_data_frame = self._dataframe
+                # Must use del as temp_pd_data_frame.drop('geometry', 1) doesn't work
+                del temp_pd_data_frame['geometry']
+                self._dataframe = pandas.DataFrame(temp_pd_data_frame)
 
     # is a void type function, does not return anything
     def to_geodataframe(self):
@@ -379,7 +381,6 @@ class SpreadsheetData:
                     or 'latitude' and 'longitude' in self._dataframe.columns:
                 xy_col_locs = self.get_xy_col_locations()
                 if xy_col_locs is not None and len(xy_col_locs) == 2:
-
                     # Cast as string type first
                     temp_x_coords = self._dataframe.iloc[:, xy_col_locs[0]].astype(str)
                     temp_y_coords = self._dataframe.iloc[:, xy_col_locs[1]].astype(str)
@@ -394,19 +395,10 @@ class SpreadsheetData:
             else:
                 print('X and Y coordinates were not detected in {0}!'.format(self._file_path))
 
-        # No x and y values available so we make empty geometry
-        else:
-            # We create an empty array to populate the geometry column .fillna(value=None)
-            temp_array = numpy.full(len(self._dataframe), fill_value=None)
-            gdf = geopandas.GeoDataFrame(self._dataframe,
-                                         geometry=geopandas.points_from_xy(x=temp_array, y=temp_array))
-            # Do Fillna so that fuzzy matching works
-            gdf['geometry'] = gdf['geometry'].fillna(value=None)
-            self._dataframe = gdf
-
 
 class Report:
     """Creates an Excel file report to show spreadsheet matched to admin boundaries shapefile"""
+
     def __init__(self, spreadsheet_dataframe, admin_dataframe):
         if not isinstance(spreadsheet_dataframe, geopandas.geodataframe.GeoDataFrame):
             raise TypeError('The spreadsheet dataframe must be of the GeoDataFrame type!!')
@@ -441,6 +433,7 @@ class MatchedData:
     """
     This class represents any matches between the spreadsheet data and the admin boundaries data
     """
+
     def __init__(self, spreadsheet_data, adm_boundaries):
         """Constructor.
         :param spreadsheet_data: string for spreadsheet data file
@@ -548,8 +541,10 @@ class MatchedData:
                 insertions = 0
                 print('MatchData - checking for matches between spreadsheet and admin boundaries shapefile...')
                 for i in reversed(range(1, col_size)):
-                    if DataUtility.is_string_match(row[i], self._adm_boundaries.data_column(self._admin_choice), self.spreadsheet_data):
-                        data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice, row[i], self.spreadsheet_data)
+                    if DataUtility.is_string_match(row[i], self._adm_boundaries.data_column(self._admin_choice),
+                                                   self.spreadsheet_data):
+                        data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice, row[i],
+                                                          self.spreadsheet_data)
                         # Prevent inserting more than one match from multiple columns
                         if insertions == 0:
                             row_data = namedtuple('row_data', ['shp_data', 'sheet_data'])
@@ -571,8 +566,10 @@ class MatchedData:
                 insertions = 0
                 print('MatchData - checking for matches between spreadsheet and admin boundaries shapefile...')
                 for i in range(1, col_size):
-                    if DataUtility.is_string_match(row[i], self._adm_boundaries.data_column(self._admin_choice), self.spreadsheet_data):
-                        data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice, row[i], self.spreadsheet_data)
+                    if DataUtility.is_string_match(row[i], self._adm_boundaries.data_column(self._admin_choice),
+                                                   self.spreadsheet_data):
+                        data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice, row[i],
+                                                          self.spreadsheet_data)
                         if insertions == 0:
                             # Info for shapefile
                             row_data = namedtuple('row_data', ['shp_data', 'sheet_data'])
@@ -623,7 +620,7 @@ class MatchedData:
                         data_row = DataUtility.filter_row(self._adm_boundaries.dataframe, self._admin_choice,
                                                           best_match[0], self.spreadsheet_data)  # row[i] in spreadsheet
                         if insertions == 0:
-                            # shpfile info
+                            # shapefile info
                             row_data = namedtuple('row_data', ['shp_data', 'sheet_data'])
                             row_data.shp_data = data_row
                             row_data.sheet_data = self.array_to_series(row, best_match[1])
@@ -673,6 +670,7 @@ class MatchedData:
         else:
             return None
 
+
 # The functions below are used by the console version of the application
 def prompt_for_admin_area_console(md):
     # dataframe is geopandas.GeoDataFrame
@@ -720,7 +718,8 @@ def run_console_match(arg_val, md):
 
 
 def process_column_priority(match_arg_val, md, **kwargs):
-    print('If you want to choose the columns on the right side of spreadsheet, type \'priority_right\' & hit enter key.')
+    print(
+        'If you want to choose the columns on the right side of spreadsheet, type \'priority_right\' & hit enter key.')
     print('Otherwise type any key and hit Enter.')
     col_pri_input = str(input('Enter column priority and hit Enter key. --> ')).lower().strip()
 
@@ -784,7 +783,8 @@ def main():
                     md.admin_choice = admin_choice
                     md.user_proceed_match()
                     if hasattr(md, 'user_proceed_match') and md.admin_choice is not None:
-                        run_console_match(args.match_type, md)
+                        if md.user_proceed_match == 1:
+                            run_console_match(args.match_type, md)
                 elif admin_input not in admin_boundaries_dict.keys():
                     print('\nYou entered an Invalid choice for administrative area. Please try again!\n')
                     print('\nIf you want to stop this program, type the x key and hit Enter to stop this program.')
