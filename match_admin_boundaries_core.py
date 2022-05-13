@@ -216,21 +216,29 @@ class SpreadsheetData:
 
         self._western_europe_encodings = ('ascii', 'latin-1', 'utf-8', 'iso-8859-15', 'iso-8859-1')
 
+        # Assign encoding value ONLY ONCE to spreadsheet instance variable
+        # Currently only supports western european/Latin and some Eastern European languages, uses bs4-UnicodeDammit
+        # See https://stackoverflow.com/questions/8509339/what-is-the-most-common-encoding-of-each-language
         encoding = DataUtility.get_file_encoding(file_path)
         if encoding is not None:
             self._encoding = encoding
-            print('UnicodeDammit detected encoding as {0}'.format(self._encoding))
+            print('UnicodeDammit setting self._encoding as {0}'.format(self._encoding))
         else:
             self._encoding = None
 
         if path.isfile(file_path) and file_path.lower().endswith('.csv'):
             # If detected None encoding force geopandas to read w/ 8859-1 otherwise geopandas reads w/ detected encoding
-            self._dataframe = geopandas.read_file(file_path, engine='python',
-                                                  encoding='iso-8859-1' if self.encoding is None else self.encoding,
-                                                  errors='backslashreplace')
-            # Assign encoding value ONLY ONCE to spreadsheet instance variable
-            # Currently only supports western european/Latin and some Eastern European languages, uses bs4-UnicodeDammit
-            # See https://stackoverflow.com/questions/8509339/what-is-the-most-common-encoding-of-each-language
+            try:
+                self._dataframe = geopandas.read_file(file_path, engine='python',
+                                                      encoding='iso-8859-1' if self._encoding is None else self._encoding,
+                                                      errors='backslashreplace')
+            except UnicodeDecodeError as ue:
+                print('UnicodeDecodeError {0} at line {1}'.format(ue, ue.__traceback__.tb_lineno))
+                # Force geopandas to read with encoding ISO-8859-1 as this won't raise an error.
+                self._dataframe = geopandas.read_file(file_path, engine='python',
+                                                      encoding='iso-8859-1')
+            except Exception as e:
+                print('Exception {0} at line {1}'.format(e, e.__traceback__.tb_lineno))
 
             # To prevent fillna error when running fuzzy matching to a GeoDataframe created from CSV file
             self._dataframe['geometry'] = self._dataframe['geometry'].fillna(value=None)
@@ -244,8 +252,9 @@ class SpreadsheetData:
                                 try:
                                     val = val.decode(self.encoding)
                                 except UnicodeDecodeError as ue:
-                                    print('{0} error w/ {1} at {2} and ln {3}'.format(ue, self.encoding, val,
-                                                                                      ue.__traceback__.tb_lineno))
+                                    print('UnicodeDecodeError {0} at {1} line # {2}'.format(ue, val,
+                                                                                            ue.__traceback__.tb_lineno))
+                                    val = val.decode('iso-8859-1')
                                     continue
                                 except Exception as e:
                                     print('Exception {0} encountered at line {1}'.format(e, e.__traceback__.tb_lineno))
@@ -272,7 +281,7 @@ class SpreadsheetData:
             # Set an attribute here so we know it's a Geodataframe and has a geometry column
             self.has_geom_col = 1
 
-        # Try to load x and y or lat and log coordinates from spreadsheet into geometry values into geopandas dataframe
+        # Try to load x and y or lat and long coordinates from spreadsheet into geometry values into geopandas dataframe
         if hasattr(self, 'has_geom_col'):
             if self.has_geom_col == 1:
                 self.xy_to_geometry()
